@@ -1,0 +1,644 @@
+---
+title: "Dissertation Analysis"
+author: "2328244j"
+date: "02/02/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, LIBRARIES}
+
+library("tidyverse")
+library("psych")
+library("pwr")
+library("olsrr")
+library("patchwork")
+library("knitr")
+library("corrr")
+
+```
+
+
+```{r, A PRIORI SAMPLE SIZE}
+pwr.f2.test(u = 5, sig.level = 0.05, f2 = .15, power = .8)
+
+```
+
+
+
+```{r}
+dat <- read_csv("Fin_Data1.csv")
+
+```
+
+
+```{r, DATA CLEANING}
+# Clean data
+# Clear tests and duplicate rows
+dat_clean <- dat %>% filter(user_status != "test") %>% 
+  group_by(user_id, q_id) %>% # or add session_id 
+  # chooses the first time each user answered each question
+  filter(row_number() == 1) %>%
+  ungroup()
+
+# Find number of 
+dat_n <- dat_clean %>% 
+  filter(quest_name == "Demographics") %>%
+  select(user_id, q_name, dv) %>%
+  spread(q_name, dv, convert = TRUE) %>% nrow()
+
+
+# Checking how many duplicate rows are excluded
+setdiff(dat, dat_clean) %>% nrow()
+
+# Clean out the users with too few responses
+del_resp <- dat_clean %>% group_by(user_id) %>% summarise(count=n(), .groups = "drop") 
+del_resp <- del_resp[del_resp[,2]>21,]
+
+data <- dat_clean %>% inner_join(del_resp, by = "user_id")
+
+
+```
+
+
+```{r, DEMOGRAPHICS}
+# Demographics
+
+Demo <- data %>% 
+  filter(quest_name == "Demographics") %>%
+  select(user_id, q_name, dv) %>%
+  spread(q_name, dv, convert = TRUE) 
+
+
+Sample_size <- Demo %>% nrow()
+
+# Gender distribution
+Gender <- Demo %>% group_by(Gender) %>% count(.groups = "drop")
+
+
+# Age distribution
+demo_means <- Demo %>%  summarise(m_age = mean(Age), sd_age = sd(Age)) 
+
+# Education
+Education <- Demo %>%
+  count(Education) %>%
+  arrange(n, Education) %>%
+  group_by(n) %>%
+  summarise(Education = paste(Education, collapse = ", "),
+            .groups = "drop")
+
+
+# Country
+
+Country <- Demo %>%
+  count(Country) %>%
+  arrange(n, Country) %>%
+  group_by(n) %>%
+  summarise(Country = paste(Country, collapse = ", "),
+            .groups = "drop") 
+
+Country
+
+```
+
+
+```{r, FREE RECALL TASK}
+# Free recall task
+
+Reca <- data %>%
+  filter(quest_name == "Robot recall and characteristics") %>%
+  select(session_id, user_id, q_name, dv) %>%
+  spread(q_name, dv, convert = TRUE)
+
+# Counting the recalled media
+
+Recall_1 <- Reca %>% mutate(Recall_1 = tolower(Recall_1) %>% trimws()) %>%
+  count(Recall_1) %>%
+  arrange(n, Recall_1) %>%
+  group_by(n) %>%
+  summarise(Recall_1 = paste(Recall_1, collapse = ", "),
+            .groups = "drop")
+
+
+Recall_2 <- Reca %>% mutate(Recall_2 = tolower(Recall_2) %>% trimws()) %>%
+  count(Recall_2) %>%
+  arrange(n, Recall_2) %>%
+  group_by(n) %>%
+  summarise(Recall_2 = paste(Recall_2, collapse = ", "),
+            .groups = "drop") 
+
+Recall_3 <- Reca %>% mutate(Recall_3 = tolower(Recall_3) %>% trimws()) %>%
+  count(Recall_3) %>%
+  arrange(n, Recall_3) %>%
+  group_by(n) %>%
+  summarise(Recall_3 = paste(Recall_3, collapse = ", "),
+            .groups = "drop")
+
+#Wall-e most recalled movie in all three recall tasks
+
+
+# Calculate means and SDs for each recall variable
+
+Recall_tgt <- Reca %>% 
+  select(user_id, Recall_1, Recall_2, Recall_3, Char_1, Char_2, Char_3, Hum_1, Hum_2, Hum_3, Mach_1, Mach_2, Mach_3, Symp_1, Symp_2, Symp_3) %>% 
+  mutate(Recall_1 = tolower(Recall_1), Recall_2 = tolower(Recall_2), Recall_3 = tolower(Recall_3) %>% 
+  trimws()) 
+
+Pop_med <- data.frame(Recall_tgt[2:4], stack(Recall_tgt[2:4])) %>%
+  tibble::rowid_to_column("ID") %>% rename("Media" = values) %>% select(-Recall_1, -Recall_2, -Recall_3, -ind)
+
+# characteristics
+Char <-  data.frame(Recall_tgt[5:7], stack(Recall_tgt[5:7])) %>%
+  tibble::rowid_to_column("ID") %>% rename("Char_sc" = values) %>% select(-Char_1, -Char_2, -Char_3, -ind)
+
+# human likeness
+Hum <- data.frame(Recall_tgt[8:10], stack(Recall_tgt[8:10])) %>%
+  tibble::rowid_to_column("ID") %>% rename("Hum_sc" = values) %>% select(-Hum_1, -Hum_2, -Hum_3, -ind)
+
+# machine likeness
+Mach <- data.frame(Recall_tgt[11:13], stack(Recall_tgt[11:13])) %>%
+  tibble::rowid_to_column("ID") %>% rename("Mach_sc" = values) %>% select(-Mach_1, -Mach_2, -Mach_3, -ind)
+
+# sympathy
+Symp <- data.frame(Recall_tgt[14:16], stack(Recall_tgt[14:16])) %>%
+  tibble::rowid_to_column("ID") %>% rename("Symp_sc" = values) %>% select(-Symp_1, -Symp_2, -Symp_3, -ind)
+  
+
+
+Long_Recall <-  list(Pop_med, Char, Hum, Mach, Symp) %>% reduce(left_join, by = "ID")  %>% na.omit()
+
+Recall_means <- Long_Recall %>% group_by(Media) %>% summarise(m_char = mean(Char_sc), sd_char = sd(Char_sc), m_hum = mean(Hum_sc), sd_hum = sd(Hum_sc), m_mach = mean(Mach_sc), sd_mach = sd(Mach_sc), m_symp = mean(Symp_sc), sd_symp = sd(Symp_sc)) %>% filter(Media %in% c("wall-e", "star wars", "i, robot", "ex machina", "terminator", "robots", "transformers", "big hero 6")) 
+#%>% adorn_rounding(digits = 2)
+
+
+
+# Change the NAs to 0
+Reca$Char_1[is.na(Reca$Char_1)] <- 0
+Reca$Char_2[is.na(Reca$Char_2)] <- 0
+Reca$Char_3[is.na(Reca$Char_3)] <- 0
+Reca$Hum_1[is.na(Reca$Hum_1)] <- 0
+Reca$Hum_2[is.na(Reca$Hum_2)] <- 0
+Reca$Hum_3[is.na(Reca$Hum_3)] <- 0
+Reca$Mach_1[is.na(Reca$Mach_1)] <- 0
+Reca$Mach_2[is.na(Reca$Mach_2)] <- 0
+Reca$Mach_3[is.na(Reca$Mach_3)] <- 0
+Reca$Symp_1[is.na(Reca$Symp_1)] <- 0
+Reca$Symp_2[is.na(Reca$Symp_2)] <- 0
+Reca$Symp_3[is.na(Reca$Symp_3)] <- 0
+
+# Change NAs to 0 and recalled films/shows to 1
+Reca$Recall_1[is.na(Reca$Recall_1)] <- 0  
+Reca$Recall_2[is.na(Reca$Recall_2)] <- 0  
+Reca$Recall_3[is.na(Reca$Recall_3)] <- 0  
+
+Recall <- Reca %>% mutate(Recall_score_1 = if_else(Recall_1 == "0", 0, 1), Recall_score_2 = if_else(Recall_2 == "0", 0, 1), Recall_score_3 = if_else(Recall_3 == "0", 0, 1)) 
+
+
+# SCORES 
+
+# Calculate the Recall, Character, Sympathy, Human Likeness, and Machine Likeness scores per participant
+
+R_score <- Recall %>% mutate(Recall_Score = rowSums(Recall[,c("Recall_score_1", "Recall_score_2", "Recall_score_3")])) %>%
+  mutate(Char_Score = rowMeans(Recall[,c("Char_1", "Char_2", "Char_3")])) %>%
+  mutate(Symp_Score = rowMeans(Recall[,c("Symp_1", "Symp_2", "Symp_3")])) %>%
+  mutate(Hum_Score = rowMeans(Recall[,c("Hum_1", "Hum_2", "Hum_3")])) %>%
+  mutate(Mach_Score = rowMeans(Recall[,c("Mach_1", "Mach_2", "Mach_3")])) %>%
+  select(user_id, Recall_Score, Char_Score, Symp_Score, Hum_Score, Mach_Score)
+  
+
+
+```
+
+
+```{r, ATTITUDES}
+# Attitudes
+
+#FSQ
+FSQ <- data %>%
+  filter(quest_name == "Frankenstein Syndrome Questionnaire") %>%
+  select(user_id, q_name, dv) %>%
+  spread(q_name, dv, convert = TRUE) 
+
+
+# FSQ scores
+FSQ_score <- FSQ %>% na.exclude() %>%
+  group_by(user_id) %>%
+  summarise(FSQ = sum(FSQ_1, FSQ_10, FSQ_2, FSQ_3, FSQ_4, FSQ_5, FSQ_6, FSQ_7, FSQ_8, FSQ_9), .groups = "drop")
+
+#FSQ score lower than 10 indicates incomplete responses!
+FSQ_score <-  FSQ_score[FSQ_score[,2]>9,]
+
+#FSQ means and SDs
+
+FSQ_mean <- FSQ_score %>% na.exclude() %>%
+  summarise(m_FSQ = mean(FSQ), sd_FSQ = sd(FSQ))
+
+
+#NARS
+NARS <- data %>%
+  filter(quest_name == "Negative Attitudes Towards Robots Scale") %>%
+  select(user_id, q_name, dv) %>%
+  spread(q_name, dv, convert = TRUE) 
+
+# NARS scores
+NARS_score <- NARS %>% 
+  group_by(user_id) %>%
+  summarise(NARS = sum(NARS_1, NARS_2, NARS_3, NARS_4, NARS_5), .groups = "drop")
+
+#NARS score lower than 5 indicates incomplete responses!
+NARS_score <-  NARS_score[NARS_score[,2]>4,]
+
+NARS_mean <- NARS_score %>% na.exclude() %>%
+  summarise(m_NARS = mean(NARS), sd_NARS = sd(NARS))
+
+Attitudes <- inner_join(NARS_score, FSQ_score, by = "user_id")
+
+```
+
+
+```{r, EASE OF USE USEFULNESS ADOPTION INTENTIONS}
+# Ease of use, usefulness, adoption intentions
+
+
+EOU <- data %>%
+  filter(quest_name == "Ease of Use and Multi-Dimensional Robot Attitude Scale") %>%
+  select(user_id, q_name, dv) %>%
+  spread(q_name, dv, convert = TRUE) 
+
+EOU_score <- EOU %>%
+  group_by(user_id) %>%
+  summarise(EOU = mean(c(EOU_1, EOU_2, EOU_3, EOU_4, EOU_5, EOU_6, EOU_7)), .groups = "drop") 
+
+EOU_mean <- EOU_score %>% na.exclude() %>%
+  summarise(m_EOU = mean(EOU), sd_EOU = sd(EOU))
+
+# 1 & 3 = companion
+# 2 & 4 = assistant
+  
+Usef <- data %>%
+  filter(quest_name == "Perceived usefulness") %>%
+  select(user_id, q_name, dv) %>%
+  spread(q_name, dv, convert = TRUE) 
+
+# Companion Robots
+Usef_comp_all <-  Usef %>%
+  select(user_id, Usef_1, Usef_3, Usef_5, Usef_6, Usef_7, Usef_8)
+
+Usef_comp_score <- Usef %>%
+  select(user_id, Usef_1, Usef_3, Usef_5, Usef_6, Usef_7, Usef_8) %>%
+  mutate(Usefulness_Companion = rowMeans(Usef[,c("Usef_1", "Usef_3", "Usef_5", "Usef_6", "Usef_7", "Usef_8")])) %>%
+  select(user_id, Usefulness_Companion)
+  
+Usef_comp_mean <- Usef_comp_score %>% na.exclude() %>%
+  summarise(m_Usef_comp = mean(Usefulness_Companion), sd_Usef_comp = sd(Usefulness_Companion))
+  
+# Assistant Robots
+Usef_assi_all <- Usef %>%
+  select(user_id, Usef_2, Usef_4, Usef_5, Usef_6, Usef_7, Usef_8)
+
+Usef_assi_score <- Usef %>%
+  select(user_id, Usef_2, Usef_4, Usef_5, Usef_6, Usef_7, Usef_8)  %>%
+  mutate(Usefulness_Assistant = rowMeans(Usef[,c("Usef_2", "Usef_4", "Usef_5", "Usef_6", "Usef_7", "Usef_8")])) %>%
+  select(user_id, Usefulness_Assistant)
+
+Usef_assi_mean <- Usef_assi_score %>% na.exclude() %>%
+  summarise(m_Usef_assi = mean(Usefulness_Assistant), sd_Usef_assi = sd(Usefulness_Assistant))
+
+# Adoption of companion and assistant robots
+Adop_int <- data %>%
+  filter(quest_name == "Adoption intentions") %>%
+  select(user_id, q_name, dv) %>%
+  spread(q_name, dv, convert = TRUE) %>%
+  rename(Adoption_Companion = Ado_1,
+         Adoption_Assistant = Ado_2)
+
+Adop_means <- Adop_int %>% na.omit() %>% summarise(m_comp = mean(Adoption_Companion), sd_comp = sd(Adoption_Companion),
+                                     m_ass = mean(Adoption_Assistant), sd_ass = sd(Adoption_Companion)) 
+#%>% adorn_rounding(digits = 2)
+
+# put all in one Technology Acceptance Model dataframe
+TAM <- list(EOU_score, Usef_comp_score, Usef_assi_score, Adop_int) %>% reduce(left_join, by = "user_id")  %>% na.omit()
+
+
+```
+
+
+```{r, OTHER EXPERIENCE}
+# Experience with robots
+
+Exp_1 <- data %>%
+  filter(quest_name == "Real experience with robots 1") %>%
+  select(user_id, q_name, dv) %>%
+  spread(q_name, dv, convert = TRUE) 
+
+Exp_2 <- data %>%
+  filter(quest_name == "Real experience with robots 2") %>%
+  select(user_id, q_name, dv) %>%
+  spread(q_name, dv, convert = TRUE) 
+
+Experience_all <- merge(Exp_1, Exp_2, by = "user_id")
+
+Experience <- Experience_all %>%
+  mutate(Experience_Score = rowMeans(Experience_all[,c("Exp_1", "Exp_2", "Exp_3", "Exp_4", "Exp_5", "Exp_6", "Exp_7", "Exp_8")])) %>%
+  select(user_id, Experience_Score)
+
+
+Experience_mean <- Experience %>% na.exclude() %>%
+  summarise(m_exp = mean(Experience_Score), sd_exp = sd(Experience_Score))
+
+```
+
+
+
+```{r, ADD SCORES IN SAME DATAFRAME}
+
+Joined <- list(TAM, R_score, Attitudes, Experience) %>% reduce(left_join, by = "user_id") %>% na.exclude()
+
+
+```
+
+
+```{r, VISUALISATION}
+
+p1 <- ggplot(Experience, aes(y = Experience_Score)) +
+   geom_boxplot(width = 0.5, fill = "dodgerblue", alpha = 0.4) +
+  labs(y = "Experience Score") +
+  coord_cartesian(xlim = c(-.5, .5), ylim = c(0, 5), expand = FALSE) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.background = element_rect(fill = "white")) 
+
+p2 <- ggplot(NARS_score, aes(y = NARS)) +
+   geom_boxplot(width = 0.5, fill = "purple", alpha = 0.4) +
+  labs(y = "NARS Score") +
+  coord_cartesian(xlim = c(-.5, .5), ylim = c(5, 35), expand = FALSE) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.background = element_blank()) 
+
+p3 <- ggplot(FSQ_score, aes(y = FSQ)) +
+   geom_boxplot(width = 0.5, fill = "yellow", alpha = 0.4) +
+  labs(y = "FSQ Score") +
+  coord_cartesian(xlim = c(-.5, .5), ylim = c(10, 70), expand = FALSE) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.background = element_blank()) 
+
+p4 <- ggplot(EOU_score, aes(y = EOU)) +
+   geom_boxplot(width = 0.5, fill = "red", alpha = 0.4) +
+  labs(y = "EOU Score") +
+  coord_cartesian(xlim = c(-.5, .5), ylim = c(0, 7), expand = FALSE) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.background = element_blank()) 
+
+p5 <- ggplot(Usef_assi_score, aes(y = Usefulness_Assistant)) +
+   geom_boxplot(width = 0.5, fill = "green", alpha = 0.4) +
+  labs(y = "Assistant Usefulness Score") +
+  coord_cartesian(xlim = c(-.5, .5), ylim = c(0, 7), expand = FALSE) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.background = element_blank()) 
+
+p6 <- ggplot(Usef_comp_score, aes(y = Usefulness_Companion)) +
+   geom_boxplot(width = 0.5, fill = "blue", alpha = 0.4) +
+  labs(y = "Companion Usefulness Score") +
+  coord_cartesian(xlim = c(-.5, .5), ylim = c(0, 7), expand = FALSE) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.background = element_blank()) 
+
+p7 <- ggplot(Adop_int, aes(y = Adoption_Companion)) +
+   geom_boxplot(width = 0.5, fill = "orange", alpha = 0.4) +
+  labs(y = "Companion Adoption Score") +
+  coord_cartesian(xlim = c(-.5, .5), ylim = c(0, 7), expand = FALSE) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.background = element_blank()) 
+
+p8 <- ggplot(Adop_int, aes(y = Adoption_Assistant)) +
+   geom_boxplot(width = 0.5, fill = "pink", alpha = 0.4) +
+  labs(y = "Assistant Adoption Score") +
+  coord_cartesian(xlim = c(-.5, .5), ylim = c(0, 7), expand = FALSE) +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        panel.background = element_blank()) 
+
+
+  
+(p1 | p2 | p3 | p4) / 
+    (p5 | p6 | p7 | p8)
+
+```
+
+
+
+
+```{r, CRONBACHS ALPHA}
+
+# Calculate cronbach alphas for the relevant scales
+
+cronbach_NARS <- round(c(psych::alpha(NARS [,2:6])$total$raw_alpha), digits = 2) #0.66
+cronbach_FSQ <- round(c(psych::alpha(FSQ [,2:11], check.keys = TRUE)$total$raw_alpha), digits = 2) #0.82
+cronbach_Exp <- round(c(psych::alpha(Experience_all [,2:9])$total$raw_alpha), digits = 2) #0.81
+cronbach_EOU <- round(c(psych::alpha(EOU [,2:8])$total$raw_alpha), digits = 2) #0.89
+cronbach_AssiUsef <- round(c(psych::alpha(Usef_assi_all [,2:7])$total$raw_alpha), digits = 2) #0.87
+cronbach_CompUsef <- round(c(psych::alpha(Usef_comp_all [,2:7])$total$raw_alpha), digits = 2) #0.84
+
+
+```
+
+
+
+
+
+
+```{r, FSQ MODEL}
+model_med_fsq <- lm(scale(FSQ) ~ scale(Recall_Score) + scale(Char_Score) + scale(Symp_Score) + scale(Hum_Score) + scale(Mach_Score) + scale(Experience_Score),  Joined)
+med_fsq_step <- MASS::stepAIC(model_med_fsq, direction = "both", 
+                      trace = FALSE)
+
+summary(med_fsq_step)
+
+
+#check assumptions
+err_med_fsq <- resid(model_med_fsq)
+
+
+ggplot() + geom_density(aes(err_med_fsq))
+ols_plot_resid_qq(model_med_fsq)
+ols_test_normality(err_EOU)
+shapiro.test(err_med_fsq)
+```
+
+
+```{r, NARS MODEL}
+
+model_med_nars <- lm(scale(NARS) ~ scale(Recall_Score) + scale(Char_Score) + scale(Symp_Score) + scale(Hum_Score) + scale(Mach_Score) + scale(Experience_Score), Joined)
+med_nars_step <- MASS::stepAIC(model_med_nars, direction = "both", 
+                      trace = FALSE)
+
+summary(med_nars_step)
+
+model_nars_fsq <- lm(NARS ~ FSQ, Joined)
+
+summary(model_nars_fsq)
+
+#check assumptions
+err_med_nars <- resid(model_med_nars)
+
+err_nars_fsq <- resid(model_nars_fsq)
+
+ggplot() + geom_density(aes(err_med_nars))
+ols_plot_resid_qq(model_med_nars)
+ols_test_normality(err_med_nars)
+shapiro.test(err_med_nars)
+
+ggplot() + geom_density(aes(err_nars_fsq))
+```
+
+
+
+
+
+
+```{r, EASE OF USE MODELS}
+
+# Regression Model
+model_EOU <- lm(EOU ~ NARS + FSQ, Joined)
+EOU_step <- MASS::stepAIC(model_EOU, direction = "both", 
+                      trace = FALSE)
+
+summary(EOU_step)
+
+
+# Check assumptions
+err_EOU <- resid(model_EOU)
+
+ggplot() + geom_density(aes(err_EOU))
+ols_plot_resid_qq(model_EOU)
+ols_test_normality(err_EOU)
+shapiro.test(err_EOU)
+
+  
+```
+
+
+```{r, ASSISTANT USEFULNESS MODEL}
+model_assi_Usef <- lm(scale(Usefulness_Assistant) ~ scale(NARS) + scale(FSQ), Joined)
+ass_use_step <- MASS::stepAIC(model_assi_Usef, direction = "both", 
+                      trace = FALSE)
+
+
+summary(ass_use_step)
+
+
+#check assumptions
+err_assi_usef <- resid(model_assi_Usef)
+
+ggplot() + geom_density(aes(err_assi_usef))
+ols_plot_resid_qq(model_assi_Usef)
+ols_test_normality(err_assi_usef)
+shapiro.test(err_assi_usef)
+```
+
+
+```{r, COMPANION USEFULNESS MODEL}
+model_comp_Usef <- lm(scale(Usefulness_Companion) ~ scale(NARS) + scale(FSQ), Joined)
+com_use_step <- MASS::stepAIC(model_comp_Usef, direction = "both", 
+                      trace = FALSE)
+
+summary(com_use_step)
+
+#check assumptions
+err_comp_usef <- resid(model_comp_Usef)
+
+
+ggplot() + geom_density(aes(err_comp_usef))
+ols_plot_resid_qq(model_comp_Usef)
+ols_test_normality(err_comp_usef)
+shapiro.test(err_comp_usef)
+
+```
+
+
+
+
+```{r, ASSISTANT ADOPTION MODEL}
+model_adop_Assi <- lm(scale(Adoption_Assistant) ~ scale(EOU) + scale(Usefulness_Assistant), Joined)
+ass_ado_step <- MASS::stepAIC(model_adop_Assi, direction = "both", 
+                      trace = FALSE)
+
+summary(ass_ado_step)
+
+#check assumptions
+err_adop_assi <- resid(model_adop_Assi)
+
+
+ggplot() + geom_density(aes(err_adop_assi))
+ols_plot_resid_qq(model_adop_Assi)
+ols_test_normality(err_adop_assi)
+shapiro.test(err_adop_assi)
+```
+
+
+```{r, COMPANION ADOPTION MODEL}
+model_adop_Comp <- lm(scale(Adoption_Companion) ~ scale(EOU) + scale(Usefulness_Companion), Joined)
+com_ado_step <- MASS::stepAIC(model_adop_Comp, direction = "both", 
+                      trace = FALSE)
+
+
+summary(com_ado_step)
+
+#check assumptions
+err_adop_comp <- resid(model_adop_Comp)
+
+ggplot() + geom_density(aes(err_adop_comp))
+ols_plot_resid_qq(model_adop_Comp)
+ols_test_normality(err_adop_comp)
+shapiro.test(err_adop_comp)
+```
+
+```{r, CORRELATION MATRIX}
+
+# Correlations between study variables
+
+#Joined %>% 
+  #select(-user_id) %>%
+  #shave(upper = FALSE) %>%
+  #fashion() %>%
+  #knitr::kable(align = "r")
+
+
+```
+
+
+```{r, EXPERIENCE MODEL}
+model_exp_fsq <- lm(FSQ ~ Experience_Score + Recall_Score + Char_Score + Symp_Score + Hum_Score + Mach_Score, Joined)
+summary(model_exp_fsq)
+
+model_exp_fsq_2 <- lm(scale(FSQ) ~ scale(Experience_Score) + scale(Symp_Score) + scale(Experience_Score):scale(Symp_Score), Joined)
+summary(model_exp_fsq_2)
+
+
+model_exp_nars <- lm(NARS ~ Experience_Score + Recall_Score + Char_Score + Symp_Score + Hum_Score + Mach_Score, Joined)
+summary(model_exp_nars)
+
+#check assumptions
+err_exp_fsq <- resid(model_exp_fsq)
+
+err_exp_nars <- resid(model_exp_nars)
+
+ggplot() + geom_density(aes(err_exp_fsq))
+ols_plot_resid_qq(model_exp_fsq)
+ols_test_normality(err_exp_fsq)
+shapiro.test(err_exp_fsq)
+
+ggplot() + geom_density(aes(err_exp_nars))
+ols_plot_resid_qq(model_exp_nars)
+ols_test_normality(err_exp_nars)
+shapiro.test(err_exp_nars)
+```
